@@ -159,7 +159,7 @@ public enum EurekaMonitors {
      * application only for AWS cloud environment.
      *
      * @return the long value representing the number of times this statistic
-     *         has occurred.
+     *         has occurred.·
      */
     public long getZoneSpecificCount() {
         return myZoneCounter.get();

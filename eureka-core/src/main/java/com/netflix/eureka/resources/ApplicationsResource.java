@@ -154,7 +154,7 @@ public class ApplicationsResource {
                     .build();
         } else {
             response = Response.ok(responseCache.get(cacheKey))
-                    .build();
+                    .build();/////---
         }
         return response;
     }

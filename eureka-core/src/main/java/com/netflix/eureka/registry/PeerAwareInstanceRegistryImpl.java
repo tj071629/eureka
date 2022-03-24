@@ -61,6 +61,10 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
+ *
+ * 这个eureka server启动的时候，会尝试从其他的eureka server去抓取注册表信息，如果抓取失败了，那么就不会让其他的服务实例来自己这里
+ * 进行服务发现，获取自己的注册表的信息
+ *
  * Handles replication of all operations to {@link AbstractInstanceRegistry} to peer
  * <em>Eureka</em> nodes to keep them all in sync.
  *
@@ -77,6 +81,9 @@ import javax.inject.Singleton;
  * {@link com.netflix.eureka.EurekaServerConfig#getWaitTimeInMsWhenSyncEmpty()}.
  * </p>
  *
+ * 如果说当前eureka server获取心跳的比例低于一定的比例的话，在一定时间内，比如一共有20个服务实例，在15分钟之内，就10个服务实例
+ * 来发送了心跳，eureka server就自动认为是自己的网络故障，不会将那10个服务实例摘除，而是让自己进入一个自我保护机制，就是自己不再
+ * 摘除任何服务实例
  * <p>
  * One important thing to note about <em>renewals</em>.If the renewal drops more
  * than the specified threshold as specified in
@@ -150,6 +157,7 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
         this.numberOfReplicationsLastMin.start();
         this.peerEurekaNodes = peerEurekaNodes;
         initializedResponseCache();
+        //初始化的时候，会来启动一个定时调度的任务
         scheduleRenewalThresholdUpdateTask();
         initRemoteRegionRegistry();
 
@@ -236,7 +244,8 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
     @Override
     public void openForTraffic(ApplicationInfoManager applicationInfoManager, int count) {
         // Renewals happen every 30 seconds and for a minute it should be a factor of 2.
-        this.expectedNumberOfRenewsPerMin = count * 2;
+        this.expectedNumberOfRenewsPerMin = count * 2;//如果有20个服务实例，乘以2，期望一分钟40个心跳
+        //count * 2 * 0.85
         this.numberOfRenewsPerMinThreshold =
                 (int) (this.expectedNumberOfRenewsPerMin * serverConfig.getRenewalPercentThreshold());
         logger.info("Got " + count + " instances from neighboring DS node");
@@ -253,6 +262,7 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
         }
         logger.info("Changing status to UP");
         applicationInfoManager.setInstanceStatus(InstanceStatus.UP);
+        //这里
         super.postInit();
     }
 
@@ -478,10 +488,15 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
 
     @Override
     public boolean isLeaseExpirationEnabled() {
+        //默认是true,如果你改为false,关闭自我保护机制的话，对这个方法永远会返回true，随时都可以清理故障的服务实例
         if (!isSelfPreservationModeEnabled()) {
             // The self preservation mode is disabled, hence allowing the instances to expire.
             return true;
         }
+        //numberOfRenewsPerMinThreshold-->我期望的是一分钟要有多少次心跳发送过来，所有服务实例一分钟的发送
+        //getNumOfRenewsInLastMin-->上一分钟所有服务实例一共发送过来多少次心跳
+        //如果上一分钟的心跳次数（102次）> 我期望的100次，就ok，返回true --->那么就可以清理故障的服务实例
+        //如果上一分钟的心跳次数太少（20次）< 我期望的100次，此时返回false
         return numberOfRenewsPerMinThreshold > 0 && getNumOfRenewsInLastMin() > numberOfRenewsPerMinThreshold;
     }
 
@@ -520,6 +535,9 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
      */
     private void updateRenewalThreshold() {
         try {
+            //将自己作为eureka client，从其他eureka server拉取注册表
+            //合并到自己本地去
+            //将从别的eureka server拉取的服务实例的数量作为count
             Applications apps = eurekaClient.getApplications();
             int count = 0;
             for (Application app : apps.getRegisteredApplications()) {
