@@ -78,7 +78,7 @@ class InstanceInfoReplicator implements Runnable {
             if (!scheduler.isShutdown()) {
                 scheduler.submit(new Runnable() {
                     @Override
-                    public void run() {
+                    public void run() {// 往线程池中提交一个线程任务---
                         logger.debug("Executing on-demand update of local InstanceInfo");
 
                         Future latestPeriodic = scheduledPeriodicRef.get();
